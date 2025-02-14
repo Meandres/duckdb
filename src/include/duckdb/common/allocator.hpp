@@ -13,8 +13,27 @@
 #include "duckdb/common/optional_ptr.hpp"
 #include "duckdb/common/shared_ptr.hpp"
 #include "duckdb/common/optional_idx.hpp"
+#include <map>
+#include <iostream>
 
 namespace duckdb {
+extern std::map<long unsigned int, int> allocation_sizes;
+inline void print_allocation_sizes(){
+	for(const auto n: allocation_sizes){
+		if(n.first >= 1024*1024*1024){
+			float size = n.first / (1024*1024*1024)+0.0;
+			std::cout << "size : " << size << "GiB, average nb : " << n.second/22.0 <<  std::endl;
+		}else if(n.first >= 1024*1024){
+			float size = n.first / (1024*1024)+0.0;
+			std::cout << "size : " << size << "MiB, average nb : " << n.second/22.0 <<  std::endl;
+		}else if(n.first >= 1024){
+			float size = n.first / (1024)+0.0;
+			std::cout << "size : " << size << "KiB, average nb : " << n.second/22.0 <<  std::endl;
+		}else{
+			std::cout << "size : " << n.first << ", average nb : " << n.second/22.0 <<  std::endl;
+		}
+	}
+}
 class Allocator;
 class AttachedDatabase;
 class ClientContext;

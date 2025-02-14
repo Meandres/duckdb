@@ -125,7 +125,8 @@ void BenchmarkRunner::RunBenchmark(Benchmark *benchmark) {
 	for (size_t i = 0; i < nruns + 1; i++) {
 		bool hotrun = i > 0;
 		if (hotrun) {
-			Log(StringUtil::Format("%s\t%d\t", benchmark->name, i));
+			//Log(StringUtil::Format("%s\t%d\t", benchmark->name, i));
+			Log(StringUtil::Format("%s\n", benchmark->name));
 		}
 		if (hotrun && benchmark->RequireReinit()) {
 			state = benchmark->Initialize(configuration);
@@ -136,7 +137,11 @@ void BenchmarkRunner::RunBenchmark(Benchmark *benchmark) {
 		                             benchmark->Timeout(configuration));
 
 		profiler.Start();
+		/*if(hotrun)
+			duckdb::allocation_sizes.clear();*/
 		benchmark->Run(state.get());
+		/*if(hotrun)
+			duckdb::print_allocation_sizes();*/
 		profiler.End();
 
 		is_active = false;
@@ -156,7 +161,7 @@ void BenchmarkRunner::RunBenchmark(Benchmark *benchmark) {
 					LogOutput("INCORRECT RESULT: " + verify);
 					break;
 				} else {
-					LogResult(std::to_string(profiler.Elapsed()));
+					//LogResult(std::to_string(profiler.Elapsed()));
 				}
 			}
 		}
@@ -329,9 +334,11 @@ ConfigurationError run_benchmarks() {
 			}
 		} else {
 			instance.LogLine("name\trun\ttiming");
+			duckdb::allocation_sizes.clear();
 			for (const auto &benchmark_index : benchmark_indices) {
 				instance.RunBenchmark(benchmarks[benchmark_index]);
 			}
+			duckdb::print_allocation_sizes();
 		}
 	} else {
 		if (instance.configuration.meta != BenchmarkMetaType::NONE) {

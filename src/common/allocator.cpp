@@ -9,6 +9,7 @@
 #include "duckdb/common/types/timestamp.hpp"
 
 #include <cstdint>
+#include <cstdio>
 
 #ifdef DUCKDB_DEBUG_ALLOCATION
 #include "duckdb/common/mutex.hpp"
@@ -34,6 +35,7 @@
 #endif
 
 namespace duckdb {
+std::map<long unsigned int, int> allocation_sizes;
 
 AllocatedData::AllocatedData() : allocator(nullptr), pointer(nullptr), allocated_size(0) {
 }
@@ -184,6 +186,12 @@ data_ptr_t Allocator::ReallocateData(data_ptr_t pointer, idx_t old_size, idx_t s
 }
 
 data_ptr_t Allocator::DefaultAllocate(PrivateAllocatorData *private_data, idx_t size) {
+	auto search = allocation_sizes.find(size);
+	if(search != allocation_sizes.end()){
+		allocation_sizes[search->first]++;
+	}else{
+		allocation_sizes.insert({size, 1});
+	}
 #ifdef USE_JEMALLOC
 	return JemallocExtension::Allocate(private_data, size);
 #else
