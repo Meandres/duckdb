@@ -21,10 +21,16 @@ enum class BenchmarkProfileInfo { NONE, NORMAL, DETAILED };
 
 struct BenchmarkConfiguration {
 public:
+	constexpr static size_t DEFAULT_NRUNS = 5;
+	constexpr static size_t DEFAULT_IDLE_TIME = 0;
+	constexpr static size_t DEFAULT_TRANSITION_TIME = 0;
 	constexpr static size_t DEFAULT_TIMEOUT = 30;
 
 public:
-	string name_pattern {};
+	vector<string> name_patterns;
+	vector<uint32_t> nruns;
+	vector<uint32_t> idle_time;
+	vector<uint32_t> transition_time;
 	BenchmarkMetaType meta = BenchmarkMetaType::NONE;
 	BenchmarkProfileInfo profile_info = BenchmarkProfileInfo::NONE;
 	optional_idx timeout_duration = optional_idx(DEFAULT_TIMEOUT);

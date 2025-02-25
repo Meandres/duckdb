@@ -13,11 +13,12 @@ endif()
 add_extension_definitions()
 add_definitions(-DDUCKDB_ROOT_DIRECTORY="${PROJECT_SOURCE_DIR}")
 
-add_executable(benchmark_runner benchmark_runner.cpp interpreted_benchmark.cpp
+# Define the shared library
+add_library(benchmarks SHARED benchmark_runner.cpp interpreted_benchmark.cpp
                                 ${BENCHMARK_OBJECT_FILES})
 
-target_link_libraries(benchmark_runner duckdb imdb test_helpers)
+target_link_libraries(benchmarks duckdb imdb test_helpers)
 
 if(${BUILD_TPCE})
-  target_link_libraries(benchmark_runner tpce)
+  target_link_libraries(benchmarks tpce)
 endif()

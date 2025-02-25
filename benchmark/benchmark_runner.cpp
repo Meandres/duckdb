@@ -21,7 +21,8 @@ void BenchmarkRunner::RegisterBenchmark(Benchmark *benchmark) {
 	GetInstance().benchmarks.push_back(benchmark);
 }
 
-Benchmark::Benchmark(bool register_benchmark, string name, string group) : name(name), group(group) {
+Benchmark::Benchmark(bool register_benchmark, string name, string group)
+    : name(name), group(group), nruns(DEFAULT_NRUNS), idle_time(0) {
 	if (register_benchmark) {
 		BenchmarkRunner::RegisterBenchmark(this);
 	}
@@ -122,6 +123,7 @@ void BenchmarkRunner::RunBenchmark(Benchmark *benchmark) {
 
 	auto state = benchmark->Initialize(configuration);
 	auto nruns = benchmark->NRuns();
+	auto idle_time = benchmark->IdleTime();
 	for (size_t i = 0; i < nruns + 1; i++) {
 		bool hotrun = i > 0;
 		if (hotrun) {
@@ -161,6 +163,9 @@ void BenchmarkRunner::RunBenchmark(Benchmark *benchmark) {
 			}
 		}
 		benchmark->Cleanup(state.get());
+		if (i < nruns) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(idle_time));
+		}
 	}
 	benchmark->Finalize();
 }
@@ -248,6 +253,24 @@ void parse_arguments(const int arg_counter, char const *const *arg_values) {
 		} else if (arg == "--detailed-profile") {
 			// write info of benchmark
 			instance.configuration.profile_info = BenchmarkProfileInfo::DETAILED;
+		} else if (StringUtil::StartsWith(arg, "--nruns=")) {
+			// write info of benchmark
+			auto splits = StringUtil::Split(arg, '=');
+			for (auto values : StringUtil::Split(splits[1], ','))
+				instance.configuration.nruns.emplace_back(
+				    Value(values).DefaultCastAs(LogicalType::UINTEGER).GetValue<uint32_t>());
+		} else if (StringUtil::StartsWith(arg, "--idle_time=")) {
+			// write info of benchmark
+			auto splits = StringUtil::Split(arg, '=');
+			for (auto values : StringUtil::Split(splits[1], ','))
+				instance.configuration.idle_time.emplace_back(
+				    Value(values).DefaultCastAs(LogicalType::UINTEGER).GetValue<uint32_t>());
+		} else if (StringUtil::StartsWith(arg, "--transition_time=")) {
+			// write info of benchmark
+			auto splits = StringUtil::Split(arg, '=');
+			for (auto values : StringUtil::Split(splits[1], ','))
+				instance.configuration.transition_time.emplace_back(
+				    Value(values).DefaultCastAs(LogicalType::UINTEGER).GetValue<uint32_t>());
 		} else if (StringUtil::StartsWith(arg, "--threads=")) {
 			// write info of benchmark
 			auto splits = StringUtil::Split(arg, '=');
@@ -273,12 +296,7 @@ void parse_arguments(const int arg_counter, char const *const *arg_values) {
 				exit(1);
 			}
 		} else {
-			if (!instance.configuration.name_pattern.empty()) {
-				fprintf(stderr, "Only one benchmark can be specified.\n");
-				print_help();
-				exit(1);
-			}
-			instance.configuration.name_pattern = arg;
+			instance.configuration.name_patterns.emplace_back(arg);
 		}
 	}
 }
@@ -292,24 +310,36 @@ ConfigurationError run_benchmarks() {
 
 	auto &instance = BenchmarkRunner::GetInstance();
 	auto &benchmarks = instance.benchmarks;
-	if (!instance.configuration.name_pattern.empty()) {
-		// run only benchmarks which names matches the
-		// passed name pattern.
+	auto &nruns = instance.configuration.nruns;
+	auto &idle_time = instance.configuration.idle_time;
+	auto &transition_time = instance.configuration.transition_time;
+	if (!instance.configuration.name_patterns.empty()) {
+		// run only benchmarks which names matches the passed name pattern.
 		std::vector<int> benchmark_indices {};
 		benchmark_indices.reserve(benchmarks.size());
-		for (idx_t index = 0; index < benchmarks.size(); ++index) {
-			if (RE2::FullMatch(benchmarks[index]->name, instance.configuration.name_pattern)) {
-				benchmark_indices.emplace_back(index);
-			} else if (RE2::FullMatch(benchmarks[index]->group, instance.configuration.name_pattern)) {
-				benchmark_indices.emplace_back(index);
+
+		for (const auto &name_pattern : instance.configuration.name_patterns) {
+			for (idx_t index = 0; index < benchmarks.size(); ++index) {
+				if (RE2::FullMatch(benchmarks[index]->name, name_pattern)) {
+					benchmark_indices.emplace_back(index);
+				} else if (RE2::FullMatch(benchmarks[index]->group, name_pattern)) {
+					benchmark_indices.emplace_back(index);
+				}
 			}
 		}
 		benchmark_indices.shrink_to_fit();
+
 		if (benchmark_indices.empty()) {
 			return ConfigurationError::BenchmarkNotFound;
 		}
-		std::sort(benchmark_indices.begin(), benchmark_indices.end(),
-		          [&](const int a, const int b) -> bool { return benchmarks[a]->name < benchmarks[b]->name; });
+
+		for (uint32_t i {0}; i < benchmark_indices.size(); ++i) {
+			if (nruns.size() > i)
+				benchmarks[benchmark_indices[i]]->setNRuns(nruns[i]);
+			if (idle_time.size() > i)
+				benchmarks[benchmark_indices[i]]->setIdleTime(idle_time[i]);
+		}
+
 		if (instance.configuration.meta == BenchmarkMetaType::INFO) {
 			// print info of benchmarks
 			for (const auto &benchmark_index : benchmark_indices) {
@@ -328,17 +358,16 @@ ConfigurationError run_benchmarks() {
 				fprintf(stdout, "%s\n", query.c_str());
 			}
 		} else {
+			unsigned i = 0;
 			instance.LogLine("name\trun\ttiming");
 			for (const auto &benchmark_index : benchmark_indices) {
 				instance.RunBenchmark(benchmarks[benchmark_index]);
+				if (transition_time.size() > i)
+					std::this_thread::sleep_for(std::chrono::milliseconds(transition_time[i++]));
 			}
 		}
 	} else {
-		if (instance.configuration.meta != BenchmarkMetaType::NONE) {
-			return ConfigurationError::InfoWithoutBenchmarkName;
-		}
-		// default: run all benchmarks
-		instance.RunBenchmarks();
+		return ConfigurationError::InfoWithoutBenchmarkName;
 	}
 	return ConfigurationError::None;
 }
@@ -356,8 +385,25 @@ void print_error_message(const ConfigurationError &error) {
 	}
 	print_help();
 }
-
-int main(int argc, char **argv) {
+//
+// int main(int argc, char **argv) {
+// 	duckdb::unique_ptr<FileSystem> fs = FileSystem::CreateLocal();
+// 	// Set the working directory. We need to scan this before loading the benchmarks or parsing the other arguments
+// 	string root_dir = parse_root_dir_or_default(argc, argv, *fs);
+// 	FileSystem::SetWorkingDirectory(root_dir);
+// 	// load interpreted benchmarks before doing anything else
+// 	LoadInterpretedBenchmarks(*fs);
+// 	parse_arguments(argc, argv);
+// 	const auto configuration_error = run_benchmarks();
+// 	if (configuration_error != ConfigurationError::None) {
+// 		print_error_message(configuration_error);
+// 		exit(1);
+// 	}
+// 	return 0;
+// }
+//
+namespace duckdb {
+void setup(int argc, char **argv) {
 	duckdb::unique_ptr<FileSystem> fs = FileSystem::CreateLocal();
 	// Set the working directory. We need to scan this before loading the benchmarks or parsing the other arguments
 	string root_dir = parse_root_dir_or_default(argc, argv, *fs);
@@ -365,10 +411,14 @@ int main(int argc, char **argv) {
 	// load interpreted benchmarks before doing anything else
 	LoadInterpretedBenchmarks(*fs);
 	parse_arguments(argc, argv);
+}
+
+int run() {
 	const auto configuration_error = run_benchmarks();
 	if (configuration_error != ConfigurationError::None) {
 		print_error_message(configuration_error);
 		exit(1);
 	}
 	return 0;
+}
 }

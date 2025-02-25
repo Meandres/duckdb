@@ -36,6 +36,10 @@ public:
 	string name;
 	//! The benchmark group this benchmark belongs to
 	string group;
+	//! The benchmark group this benchmark belongs to
+	uint32_t nruns;
+	//! The time between runs
+	uint32_t idle_time;
 
 	Benchmark(bool register_benchmark, string name, string group);
 
@@ -80,9 +84,23 @@ public:
 	virtual bool RequireReinit() {
 		return false;
 	}
+
+	void setNRuns(uint32_t runs) {
+		nruns = runs;
+	}
+
+	void setIdleTime(uint32_t time) {
+		idle_time = time;
+	}
+
 	//! The amount of runs to do for this benchmark
 	virtual size_t NRuns() {
-		return DEFAULT_NRUNS;
+		return nruns;
+	}
+
+	//! The time between runs
+	virtual size_t IdleTime() {
+		return idle_time;
 	}
 	//! The timeout for this benchmark (in seconds)
 	virtual optional_idx Timeout(const BenchmarkConfiguration &config) {

@@ -52,4 +52,7 @@ public:
 	uint32_t threads = MaxValue<uint32_t>(std::thread::hardware_concurrency(), 1u);
 };
 
+void setup(int argc, char **argv);
+int run();
+
 } // namespace duckdb
