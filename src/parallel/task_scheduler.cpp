@@ -397,6 +397,13 @@ void TaskScheduler::RelaunchThreadsInternal(int32_t n) {
 			unique_ptr<thread> worker_thread;
 			try {
 				worker_thread = make_uniq<thread>(ThreadExecuteTasks, this, marker.get());
+
+				// Bind to core
+				int core_id = threads.size();
+				cpu_set_t cpuset;
+				CPU_ZERO(&cpuset);
+				CPU_SET(core_id, &cpuset);
+				pthread_setaffinity_np(worker_thread->native_handle(), sizeof(cpu_set_t), &cpuset);
 			} catch (std::exception &ex) {
 				// thread constructor failed - this can happen when the system has too many threads allocated
 				// in this case we cannot allocate more threads - stop launching them

@@ -11,7 +11,7 @@ if(${_index} GREATER -1)
 endif()
 
 add_extension_definitions()
-add_definitions(-DDUCKDB_ROOT_DIRECTORY="${PROJECT_SOURCE_DIR}")
+add_definitions(-DDUCKDB_ROOT_DIRECTORY="/")
 
 add_executable(benchmark_runner benchmark_runner.cpp interpreted_benchmark.cpp
                                 ${BENCHMARK_OBJECT_FILES})

@@ -255,7 +255,7 @@ static void MallocTrim(idx_t pad) {
 	}
 
 	// We succesfully updated LAST_TRIM_TIMESTAMP_MS, we can trim
-	malloc_trim(pad);
+	// malloc_trim(pad);
 #endif
 }
 
