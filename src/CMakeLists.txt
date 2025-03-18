@@ -78,6 +78,12 @@ if(AMALGAMATION_BUILD)
 
 else()
 
+  include_directories(
+    ../../../../include ../../../..
+    ../../../../arch/x64 ../../../../arch/common
+    ../../../../build/release.x64/gen/include
+  )
+
   add_definitions(-DDUCKDB_MAIN_LIBRARY)
 
   add_subdirectory(optimizer)
@@ -137,6 +143,7 @@ else()
 
   add_library(duckdb_static STATIC ${ALL_OBJECT_FILES})
   target_link_libraries(duckdb_static ${DUCKDB_LINK_LIBS})
+  target_link_libraries(duckdb_static ${PROJECT_SOURCE_DIR}/../../../build/release.x64/libosv.so)
   link_threads(duckdb_static)
   link_extension_libraries(duckdb_static)
 

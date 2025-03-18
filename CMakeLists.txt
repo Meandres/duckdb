@@ -1472,7 +1472,7 @@ if(BUILD_PYTHON)
     COMMAND ${PIP_COMMAND}
     DEPENDS duckdb duckdb_static
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tools/pythonpkg
-    COMMENT Build
+    COMMENlibraryd
     Python package)
   add_extension_dependencies(duckdb_python)
 endif()
@@ -1480,16 +1480,16 @@ endif()
 if(NOT DUCKDB_EXPLICIT_PLATFORM)
   set(VERSION_SOURCES tools/utils/test_platform.cpp)
 
-  add_executable(duckdb_platform_binary ${VERSION_SOURCES})
-  link_threads(duckdb_platform_binary)
-
-  set_target_properties(duckdb_platform_binary PROPERTIES OUTPUT_NAME duckdb_platform_binary)
-  set_target_properties(duckdb_platform_binary PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+  add_library(duckdb_platform_library SHARED ${VERSION_SOURCES})
+  target_compile_options(duckdb_platform_library PRIVATE -fPIC)
+  link_threads(duckdb_platform_library)
+  set_target_properties(duckdb_platform_library PROPERTIES OUTPUT_NAME duckdb_platform_library)
+  set_target_properties(duckdb_platform_library PROPERTIES RUNTIME_OUTPUT_DIRECTORY
                                          ${PROJECT_BINARY_DIR})
   add_custom_command(
           OUTPUT ${PROJECT_BINARY_DIR}/duckdb_platform_out
-          DEPENDS duckdb_platform_binary
-          COMMAND duckdb_platform_binary > ${PROJECT_BINARY_DIR}/duckdb_platform_out || ( echo "Provide explicit DUCKDB_PLATFORM=your_target_arch to avoid build-type detection of the platform" && exit 1 )
+          DEPENDS duckdb_platform_library
+          COMMAND duckdb_platform_library > ${PROJECT_BINARY_DIR}/duckdb_platform_out || ( echo "Provide explicit DUCKDB_PLATFORM=your_target_arch to avoid build-type detection of the platform" && exit 1 )
           WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
           )
 else()

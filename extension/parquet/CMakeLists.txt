@@ -5,7 +5,11 @@ project(ParquetExtension)
 include_directories(
   include ../../third_party/lz4 ../../third_party/parquet
   ../../third_party/thrift ../../third_party/snappy
-  ../../third_party/brotli/include)
+  ../../third_party/brotli/include
+  ../../../../../include ../../../../.. 
+  ../../../../../arch/x64 ../../../../../arch/common
+  ../../../../../build/release.x64/gen/include
+  )
 
 add_subdirectory(decoder)
 add_subdirectory(reader)
