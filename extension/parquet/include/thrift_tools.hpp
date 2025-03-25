@@ -11,6 +11,7 @@
 #include <list>
 #include "thrift/protocol/TCompactProtocol.h"
 #include "thrift/transport/TBufferTransports.h"
+#include <osv/ucache.hh>
 
 #include "duckdb.hpp"
 #ifndef DUCKDB_AMALGAMATION
@@ -22,21 +23,15 @@ namespace duckdb {
 
 // A ReadHead for prefetching data in a specific range
 struct ReadHead {
-	ReadHead(idx_t location, uint64_t size) : location(location), size(size) {};
+	ReadHead(idx_t location, uint64_t size) : location(location), size(size){};
 	// Hint info
 	idx_t location;
 	uint64_t size;
 
-	// Current info
-	AllocatedData data;
-	bool data_isset = false;
+	bool already_used = false;
 
 	idx_t GetEnd() const {
 		return size + location;
-	}
-
-	void Allocate(Allocator &allocator) {
-		data = allocator.Allocate(size);
 	}
 };
 
@@ -60,16 +55,17 @@ struct ReadHeadComparator {
 // 1: register all ranges that will be read, merging ranges that are consecutive
 // 2: prefetch all registered ranges
 struct ReadAheadBuffer {
-	ReadAheadBuffer(Allocator &allocator, FileHandle &handle) : allocator(allocator), handle(handle) {
+	ReadAheadBuffer(ucache::VMA* vma_p): vma(vma_p)
+	{
+		read_heads.reserve(128);
 	}
 
 	// The list of read heads
-	std::list<ReadHead> read_heads;
+	std::vector<ReadHead> read_heads;
 	// Set for merging consecutive ranges
 	std::set<ReadHead *, ReadHeadComparator> merge_set;
 
-	Allocator &allocator;
-	FileHandle &handle;
+	ucache::VMA* vma;
 
 	idx_t total_size = 0;
 
@@ -89,7 +85,7 @@ struct ReadAheadBuffer {
 			}
 		}
 
-		read_heads.emplace_front(ReadHead(pos, len));
+		read_heads.emplace(read_heads.begin(), ReadHead(pos, len));
 		total_size += len;
 		auto &read_head = read_heads.front();
 
@@ -97,69 +93,40 @@ struct ReadAheadBuffer {
 			merge_set.insert(&read_head);
 		}
 
-		if (read_head.GetEnd() > handle.GetFileSize()) {
-			throw std::runtime_error("Prefetch registered for bytes outside file: " + handle.GetPath() +
+		if (read_head.GetEnd() > vma->file->size) {
+			throw std::runtime_error("Prefetch registered for bytes outside file: " + vma->file->name +
 			                         ", attempted range: [" + std::to_string(pos) + ", " +
 			                         std::to_string(read_head.GetEnd()) +
-			                         "), file size: " + std::to_string(handle.GetFileSize()));
+			                         "), file size: " + std::to_string(vma->file->size));
 		}
 	}
 
 	// Returns the relevant read head
 	ReadHead *GetReadHead(idx_t pos) {
-		for (auto &read_head : read_heads) {
+		for(int i=0; i<read_heads.size(); i++){
+			ReadHead &read_head = read_heads[i];
 			if (pos >= read_head.location && pos < read_head.GetEnd()) {
 				return &read_head;
 			}
 		}
 		return nullptr;
-	}
-
-	// Prefetch all read heads
-	void Prefetch() {
-		for (auto &read_head : read_heads) {
-			read_head.Allocate(allocator);
-
-			if (read_head.GetEnd() > handle.GetFileSize()) {
-				throw std::runtime_error("Prefetch registered requested for bytes outside file");
-			}
-
-			handle.Read(read_head.data.get(), read_head.size, read_head.location);
-			read_head.data_isset = true;
-		}
-	}
+	} 
 };
+
+void parquet_prefetch(ucache::VMA* vma, void* addr, ucache::PrefetchList pl, void* obj);
 
 class ThriftFileTransport : public duckdb_apache::thrift::transport::TVirtualTransport<ThriftFileTransport> {
 public:
 	static constexpr uint64_t PREFETCH_FALLBACK_BUFFERSIZE = 1000000;
-
-	ThriftFileTransport(Allocator &allocator, FileHandle &handle_p, bool prefetch_mode_p)
-	    : handle(handle_p), location(0), size(handle.GetFileSize()), allocator(allocator),
-	      ra_buffer(ReadAheadBuffer(allocator, handle_p)), prefetch_mode(prefetch_mode_p) {
-	}
+	ThriftFileTransport(ucache::VMA* vma_p, bool prefetch_mode_p)
+	    : vma(vma_p), location(0), size(vma->file->size), prefetch_mode(prefetch_mode_p), ra_buffer(ReadAheadBuffer(vma_p))
+			{
+				vma->prefetch_pol = parquet_prefetch;
+				vma->prefetchObject = (void*)this;
+			}
 
 	uint32_t read(uint8_t *buf, uint32_t len) {
-		auto prefetch_buffer = ra_buffer.GetReadHead(location);
-		if (prefetch_buffer != nullptr && location - prefetch_buffer->location + len <= prefetch_buffer->size) {
-			D_ASSERT(location - prefetch_buffer->location + len <= prefetch_buffer->size);
-
-			if (!prefetch_buffer->data_isset) {
-				prefetch_buffer->Allocate(allocator);
-				handle.Read(prefetch_buffer->data.get(), prefetch_buffer->size, prefetch_buffer->location);
-				prefetch_buffer->data_isset = true;
-			}
-			memcpy(buf, prefetch_buffer->data.get() + location - prefetch_buffer->location, len);
-		} else {
-			if (prefetch_mode && len < PREFETCH_FALLBACK_BUFFERSIZE && len > 0) {
-				Prefetch(location, MinValue<uint64_t>(PREFETCH_FALLBACK_BUFFERSIZE, handle.GetFileSize() - location));
-				auto prefetch_buffer_fallback = ra_buffer.GetReadHead(location);
-				D_ASSERT(location - prefetch_buffer_fallback->location + len <= prefetch_buffer_fallback->size);
-				memcpy(buf, prefetch_buffer_fallback->data.get() + location - prefetch_buffer_fallback->location, len);
-			} else {
-				handle.Read(buf, len, location);
-			}
-		}
+		memcpy(buf, reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(vma->start)+location), len);
 		location += len;
 		return len;
 	}
@@ -183,7 +150,6 @@ public:
 
 	// Prefetch all previously registered ranges
 	void PrefetchRegistered() {
-		ra_buffer.Prefetch();
 	}
 
 	void ClearPrefetch() {
@@ -210,15 +176,12 @@ public:
 		return size;
 	}
 
-private:
-	FileHandle &handle;
-	idx_t location;
-	idx_t size;
-
-	Allocator &allocator;
-
 	// Multi-buffer prefetch
 	ReadAheadBuffer ra_buffer;
+private:
+	ucache::VMA* vma;
+	idx_t location;
+	idx_t size;
 
 	// Whether the prefetch mode is enabled. In this mode the DirectIO flag of the handle will be set and the parquet
 	// reader will manage the read buffering.

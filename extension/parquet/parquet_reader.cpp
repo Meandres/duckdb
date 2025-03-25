@@ -46,23 +46,49 @@ using duckdb_parquet::SchemaElement;
 using duckdb_parquet::Statistics;
 using duckdb_parquet::Type;
 
+void parquet_prefetch(ucache::VMA* vma, void* addr, ucache::PrefetchList pl, void* obj){
+		ThriftFileTransport* tft = (ThriftFileTransport*)obj;
+		idx_t pos = (uintptr_t)addr - (uintptr_t)vma->start;
+		assert(pos >= 0 & pos < vma->start + vma->size);
+		ReadHead* rh = tft->ra_buffer.GetReadHead(pos);
+		if(rh == nullptr) // no relevant range
+			return;
+		if(rh->already_used) // already used
+			return;
+		bool f = false;
+		if(__atomic_test_and_set(&rh->already_used, __ATOMIC_SEQ_CST)) // take ownership of the range
+			return;
+		rh->location = align_down(rh->location, vma->pageSize);
+		u64 end = rh->GetEnd();
+		end = align_up(end, vma->pageSize);
+		rh->size = end - rh->location;
+		u64 nbToPrefetch = rh->size / vma->pageSize;
+		pl.reserve(nbToPrefetch);
+		for(u64 i = 0; i<nbToPrefetch; i++){
+			void* addr = reinterpret_cast<void*>((uintptr_t)vma->start + rh->location + i * vma->pageSize);
+			ucache::Buffer* buf = vma->getBuffer(addr);
+			assert(buf != NULL);
+			pl.push_back(buf);
+		}
+}
+
 static unique_ptr<duckdb_apache::thrift::protocol::TProtocol>
-CreateThriftFileProtocol(Allocator &allocator, FileHandle &file_handle, bool prefetch_mode) {
-	auto transport = std::make_shared<ThriftFileTransport>(allocator, file_handle, prefetch_mode);
+CreateThriftFileProtocol(ucache::VMA* vma, bool prefetch_mode) {
+	auto transport = std::make_shared<ThriftFileTransport>(vma, prefetch_mode);
 	return make_uniq<duckdb_apache::thrift::protocol::TCompactProtocolT<ThriftFileTransport>>(std::move(transport));
 }
 
 static shared_ptr<ParquetFileMetadataCache>
-LoadMetadata(ClientContext &context, Allocator &allocator, FileHandle &file_handle,
+LoadMetadata(ClientContext &context, Allocator &allocator, ucache::VMA* vma,
              const shared_ptr<const ParquetEncryptionConfig> &encryption_config,
              const EncryptionUtil &encryption_util) {
 	auto current_time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 
-	auto file_proto = CreateThriftFileProtocol(allocator, file_handle, false);
+	auto file_proto = CreateThriftFileProtocol(vma, false);
 	auto &transport = reinterpret_cast<ThriftFileTransport &>(*file_proto->getTransport());
 	auto file_size = transport.GetSize();
 	if (file_size < 12) {
-		throw InvalidInputException("File '%s' too small to be a Parquet file", file_handle.path);
+		throw InvalidInputException("File '%s' too small to be a Parquet file", vma->file->name);
 	}
 
 	ResizeableBuffer buf;
@@ -77,22 +103,22 @@ LoadMetadata(ClientContext &context, Allocator &allocator, FileHandle &file_hand
 		footer_encrypted = false;
 		if (encryption_config) {
 			throw InvalidInputException("File '%s' is not encrypted, but 'encryption_config' was set",
-			                            file_handle.path);
+			                            vma->file->name);
 		}
 	} else if (memcmp(buf.ptr + 4, "PARE", 4) == 0) {
 		footer_encrypted = true;
 		if (!encryption_config) {
 			throw InvalidInputException("File '%s' is encrypted, but 'encryption_config' was not set",
-			                            file_handle.path);
+			                            vma->file->name);
 		}
 	} else {
-		throw InvalidInputException("No magic bytes found at end of file '%s'", file_handle.path);
+		throw InvalidInputException("No magic bytes found at end of file '%s'", vma->file->name);
 	}
 
 	// read four-byte footer length from just before the end magic bytes
 	auto footer_len = *reinterpret_cast<uint32_t *>(buf.ptr);
 	if (footer_len == 0 || file_size < 12 + footer_len) {
-		throw InvalidInputException("Footer length error in file '%s'", file_handle.path);
+		throw InvalidInputException("Footer length error in file '%s'", vma->file->name);
 	}
 
 	auto metadata_pos = file_size - (footer_len + 8);
@@ -105,7 +131,7 @@ LoadMetadata(ClientContext &context, Allocator &allocator, FileHandle &file_hand
 		crypto_metadata->read(file_proto.get());
 		if (crypto_metadata->encryption_algorithm.__isset.AES_GCM_CTR_V1) {
 			throw InvalidInputException("File '%s' is encrypted with AES_GCM_CTR_V1, but only AES_GCM_V1 is supported",
-			                            file_handle.path);
+			                            vma->file->name);
 		}
 		ParquetCrypto::Read(*metadata, *file_proto, encryption_config->GetFooterKey(), encryption_util);
 	} else {
@@ -667,12 +693,13 @@ ParquetReader::ParquetReader(ClientContext &context_p, string file_name_p, Parqu
                              shared_ptr<ParquetFileMetadataCache> metadata_p)
     : BaseFileReader(std::move(file_name_p)), fs(FileSystem::GetFileSystem(context_p)),
       allocator(BufferAllocator::Get(context_p)), parquet_options(std::move(parquet_options_p)) {
-	file_handle = fs.OpenFile(file_name, FileFlags::FILE_FLAGS_READ);
+	/*file_handle = fs.OpenFile(file_name, FileFlags::FILE_FLAGS_READ);
 	if (!file_handle->CanSeek()) {
 		throw NotImplementedException(
 		    "Reading parquet files from a FIFO stream is not supported and cannot be efficiently supported since "
 		    "metadata is located at the end of the file. Write the stream to disk first and read from there instead.");
-	}
+	}*/
+	vma = ucache::uCacheManager->getOrCreateVMA(file_name.c_str());
 
 	// set pointer to factory method for AES state
 	auto &config = DBConfig::GetConfig(context_p);
@@ -690,12 +717,12 @@ ParquetReader::ParquetReader(ClientContext &context_p, string file_name_p, Parqu
 		context_p.TryGetCurrentSetting("parquet_metadata_cache", metadata_cache);
 		if (!metadata_cache.GetValue<bool>()) {
 			metadata =
-			    LoadMetadata(context_p, allocator, *file_handle, parquet_options.encryption_config, *encryption_util);
+			    LoadMetadata(context_p, allocator, vma, parquet_options.encryption_config, *encryption_util);
 		} else {
-			auto last_modify_time = fs.GetLastModifiedTime(*file_handle);
+			//auto last_modify_time = fs.GetLastModifiedTime(*file_handle);
 			metadata = ObjectCache::GetObjectCache(context_p).Get<ParquetFileMetadataCache>(file_name);
-			if (!metadata || (last_modify_time + 10 >= metadata->read_time)) {
-				metadata = LoadMetadata(context_p, allocator, *file_handle, parquet_options.encryption_config,
+			if (!metadata) {// || (last_modify_time + 10 >= metadata->read_time)) {
+				metadata = LoadMetadata(context_p, allocator, vma, parquet_options.encryption_config,
 				                        *encryption_util);
 				ObjectCache::GetObjectCache(context_p).Put(file_name, metadata);
 			}
@@ -952,7 +979,7 @@ void ParquetReader::InitializeScan(ClientContext &context, ParquetReaderScanStat
 	state.group_offset = 0;
 	state.group_idx_list = std::move(groups_to_read);
 	state.sel.Initialize(STANDARD_VECTOR_SIZE);
-	if (!state.file_handle || state.file_handle->path != file_handle->path) {
+	/*if (!state.file_handle || state.file_handle->path != file_handle->path) {
 		auto flags = FileFlags::FILE_FLAGS_READ;
 
 		Value disable_prefetch = false;
@@ -970,8 +997,8 @@ void ParquetReader::InitializeScan(ClientContext &context, ParquetReaderScanStat
 		}
 
 		state.file_handle = fs.OpenFile(file_handle->path, flags);
-	}
-	state.thrift_file_proto = CreateThriftFileProtocol(allocator, *state.file_handle, state.prefetch_mode);
+	}*/
+	state.thrift_file_proto = CreateThriftFileProtocol(vma, state.prefetch_mode);
 	state.root_reader = CreateReader(context);
 	state.define_buf.resize(allocator, STANDARD_VECTOR_SIZE);
 	state.repeat_buf.resize(allocator, STANDARD_VECTOR_SIZE);

@@ -22,6 +22,7 @@
 #include "parquet_types.h"
 #include "resizable_buffer.hpp"
 #include "duckdb/execution/adaptive_filter.hpp"
+#include <osv/ucache.hh>
 
 #include <exception>
 
@@ -59,6 +60,7 @@ struct ParquetReaderScanState {
 	int64_t current_group;
 	idx_t group_offset;
 	unique_ptr<FileHandle> file_handle;
+	ucache::VMA* vma;
 	unique_ptr<ColumnReader> root_reader;
 	std::unique_ptr<duckdb_apache::thrift::protocol::TProtocol> thrift_file_proto;
 
@@ -145,6 +147,7 @@ public:
 	shared_ptr<EncryptionUtil> encryption_util;
 	//! How many rows have been read from this file
 	atomic<idx_t> rows_read;
+	ucache::VMA* vma;
 
 public:
 	void InitializeScan(ClientContext &context, ParquetReaderScanState &state, vector<idx_t> groups_to_read);

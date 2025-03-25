@@ -10,6 +10,7 @@
 #include "concurrentqueue.h"
 #include "duckdb/common/thread.hpp"
 #include "lightweightsemaphore.h"
+#include <osv/sched.hh>
 
 #include <thread>
 #else
@@ -275,7 +276,8 @@ void TaskScheduler::ExecuteTasks(idx_t max_tasks) {
 }
 
 #ifndef DUCKDB_NO_THREADS
-static void ThreadExecuteTasks(TaskScheduler *scheduler, atomic<bool> *marker) {
+static void ThreadExecuteTasks(TaskScheduler *scheduler, atomic<bool> *marker, int cpu_id) {
+	sched::thread::pin(sched::cpus[cpu_id]);
 	scheduler->ExecuteForever(marker);
 }
 #endif
@@ -429,7 +431,7 @@ void TaskScheduler::RelaunchThreadsInternal(int32_t n) {
 			auto marker = unique_ptr<atomic<bool>>(new atomic<bool>(true));
 			unique_ptr<thread> worker_thread;
 			try {
-				worker_thread = make_uniq<thread>(ThreadExecuteTasks, this, marker.get());
+				worker_thread = make_uniq<thread>(ThreadExecuteTasks, this, marker.get(), i+1);
 			} catch (std::exception &ex) {
 				// thread constructor failed - this can happen when the system has too many threads allocated
 				// in this case we cannot allocate more threads - stop launching them
@@ -441,6 +443,7 @@ void TaskScheduler::RelaunchThreadsInternal(int32_t n) {
 			markers.push_back(std::move(marker));
 		}
 	}
+	sched::thread::pin(sched::cpus[0]);
 	current_thread_count = NumericCast<int32_t>(threads.size() + config.options.external_threads);
 	if (Allocator::SupportsFlush()) {
 		Allocator::FlushAll();

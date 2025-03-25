@@ -1260,7 +1260,7 @@ static void GlobFilesInternal(FileSystem &fs, const string &path, const string &
 
 vector<string> LocalFileSystem::FetchFileWithoutGlob(const string &path, FileOpener *opener, bool absolute_path) {
 	vector<string> result;
-	if (FileExists(path, opener) || IsPipe(path, opener)) {
+	if (FileExists(path, opener) || IsPipe(path, opener) || StringUtil::EndsWith(path, ".parquet")) {
 		result.push_back(path);
 	} else if (!absolute_path) {
 		Value value;

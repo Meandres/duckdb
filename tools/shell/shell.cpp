@@ -4786,8 +4786,9 @@ int SQLITE_CDECL wmain(int argc, wchar_t **wargv) {
 	int argcToFree = 0;
 #endif
 
+	printf("%p %p %p\n", stdin, stdout, stderr);
 	setBinaryMode(stdin, 0);
-	setvbuf(stderr, 0, _IONBF, 0); /* Make sure stderr is unbuffered */
+	setvbuf(stderr, 0, _IONBF, 0); /* Make sure stderr is unbuffered */ //-> this crashes sometimes in OSv. TODO: why ? the stream seems to be uninitialized smh
 	stdin_is_interactive = isatty(0);
 	stdout_is_console = isatty(1);
 	stderr_is_console = isatty(2);

@@ -384,6 +384,7 @@ pages_commit_impl(void *addr, size_t size, bool commit) {
 
 bool
 pages_commit(void *addr, size_t size) {
+	return true;
 	return pages_commit_impl(addr, size, true);
 }
 
