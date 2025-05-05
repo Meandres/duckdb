@@ -121,7 +121,7 @@ public:
 	ThriftFileTransport(ucache::VMA* vma_p, bool prefetch_mode_p)
 	    : vma(vma_p), location(0), size(vma->file->size), prefetch_mode(prefetch_mode_p), ra_buffer(ReadAheadBuffer(vma_p))
 			{
-				vma->prefetch_pol = parquet_prefetch;
+				vma->callback_implems.prefetch_pol = parquet_prefetch;
 				vma->prefetchObject = (void*)this;
 			}
 

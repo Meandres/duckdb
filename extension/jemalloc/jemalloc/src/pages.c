@@ -390,6 +390,7 @@ pages_commit(void *addr, size_t size) {
 
 bool
 pages_decommit(void *addr, size_t size) {
+	return true;
 	return pages_commit_impl(addr, size, false);
 }
 

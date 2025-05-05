@@ -689,6 +689,12 @@ ParquetColumnDefinition ParquetColumnDefinition::FromSchemaValue(ClientContext &
 	return result;
 }
 
+static u64 envOr(const char* env, u64 value) {
+   if (getenv(env))
+      return atof(getenv(env));
+   return value;
+}
+
 ParquetReader::ParquetReader(ClientContext &context_p, string file_name_p, ParquetOptions parquet_options_p,
                              shared_ptr<ParquetFileMetadataCache> metadata_p)
     : BaseFileReader(std::move(file_name_p)), fs(FileSystem::GetFileSystem(context_p)),
@@ -699,6 +705,8 @@ ParquetReader::ParquetReader(ClientContext &context_p, string file_name_p, Parqu
 		    "Reading parquet files from a FIFO stream is not supported and cannot be efficiently supported since "
 		    "metadata is located at the end of the file. Write the stream to disk first and read from there instead.");
 	}*/
+	u64 physgb = envOr("PHYSGB", 16ull);
+	ucache::createCache(physgb *1024*1024*1024, envOr("BATCH", 64));
 	vma = ucache::uCacheManager->getOrCreateVMA(file_name.c_str());
 
 	// set pointer to factory method for AES state
