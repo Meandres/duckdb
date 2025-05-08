@@ -707,7 +707,7 @@ ParquetReader::ParquetReader(ClientContext &context_p, string file_name_p, Parqu
 	}*/
 	u64 physgb = envOr("PHYSGB", 16ull);
 	ucache::createCache(physgb *1024*1024*1024, envOr("BATCH", 64));
-	vma = ucache::uCacheManager->getOrCreateVMA(file_name.c_str());
+	vma = ucache::uCacheManager->getOrCreateVMA(file_name.c_str(), envOr("PAGESIZE", 4096));
 
 	// set pointer to factory method for AES state
 	auto &config = DBConfig::GetConfig(context_p);
