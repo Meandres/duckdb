@@ -51,13 +51,16 @@ void parquet_prefetch(ucache::VMA* vma, void* addr, ucache::PrefetchList pl, voi
 		idx_t pos = (uintptr_t)addr - (uintptr_t)vma->start;
 		assert(pos >= 0 & pos < vma->start + vma->size);
 		ReadHead* rh = tft->ra_buffer.GetReadHead(pos);
-		if(rh == nullptr) // no relevant range
+		if(rh == nullptr){ // no relevant range
 			return;
-		if(rh->already_used) // already used
+		}
+		if(rh->already_used){ // already used
 			return;
+		}
 		bool f = false;
-		if(__atomic_test_and_set(&rh->already_used, __ATOMIC_SEQ_CST)) // take ownership of the range
+		if(__atomic_test_and_set(&rh->already_used, __ATOMIC_SEQ_CST)){ // take ownership of the range
 			return;
+		}
 		rh->location = align_down(rh->location, vma->pageSize);
 		u64 end = rh->GetEnd();
 		end = align_up(end, vma->pageSize);
