@@ -46,39 +46,33 @@ using duckdb_parquet::SchemaElement;
 using duckdb_parquet::Statistics;
 using duckdb_parquet::Type;
 
-void parquet_prefetch(ucache::VMA* vma, void* addr, ucache::PrefetchList pl, void* obj){
-		ThriftFileTransport* tft = (ThriftFileTransport*)obj;
+ThriftFileTransport* cores_transports[64] = {};
+
+void parquet_prefetch(ucache::VMA* vma, void* addr, ucache::PrefetchList pl){
+		ThriftFileTransport* tft = cores_transports[sched::cpu::current()->id];
+		ucache::assert_crash(tft != NULL);
 		idx_t pos = (uintptr_t)addr - (uintptr_t)vma->start;
-		assert(pos >= 0 & pos < vma->start + vma->size);
+		uint64_t buf_id = pos/vma->pageSize;
+		if(ucache::uCacheManager->pageFaults.load() % 100000 == 0){
+				printf("Ratio prefetched / total: %.3f : %lu - %lu\n", ucache::uCacheManager->prefetchedSize/(ucache::uCacheManager->readSize+0.0), ucache::uCacheManager->prefetchedSize.load()/vma->pageSize, ucache::uCacheManager->readSize.load()/vma->pageSize);
+				printf("Mispredictions: %lu\n\n", ucache::uCacheManager->mispredictions.load());
+				printf("Depth: %.2f\n", ucache::uCacheManager->poll_depth.load()/(ucache::uCacheManager->poll_depth_count.load()+0.0));
+		}
 		ReadHead* rh = tft->ra_buffer.GetReadHead(pos);
-		if(rh == nullptr){ // no relevant range
-			return;
-		}
-		if(rh->already_used){ // already used
-			return;
-		}
-		bool f = false;
-		if(__atomic_test_and_set(&rh->already_used, __ATOMIC_SEQ_CST)){ // take ownership of the range
-			return;
-		}
-		rh->location = align_down(rh->location, vma->pageSize);
-		u64 end = rh->GetEnd();
-		end = align_up(end, vma->pageSize);
-		rh->size = end - rh->location;
-		u64 nbToPrefetch = rh->size / vma->pageSize;
+		if(rh == nullptr){ return; }
+		u64 remainingBuffers = (rh->GetEnd() - pos)/vma->pageSize;
+		u64 nbToPrefetch = remainingBuffers < ucache::uCacheManager->prefetch_batch ? remainingBuffers : ucache::uCacheManager->prefetch_batch;
 		pl.reserve(nbToPrefetch);
 		for(u64 i = 0; i<nbToPrefetch; i++){
-			void* addr = reinterpret_cast<void*>((uintptr_t)vma->start + rh->location + i * vma->pageSize);
-			ucache::Buffer* buf = vma->getBuffer(addr);
-			assert(buf != NULL);
-			pl.push_back(buf);
+			pl.push_back(vma->buffers[buf_id+1+i]);
 		}
 }
 
 static unique_ptr<duckdb_apache::thrift::protocol::TProtocol>
 CreateThriftFileProtocol(ucache::VMA* vma, bool prefetch_mode) {
 	auto transport = std::make_shared<ThriftFileTransport>(vma, prefetch_mode);
-	return make_uniq<duckdb_apache::thrift::protocol::TCompactProtocolT<ThriftFileTransport>>(std::move(transport));
+	cores_transports[sched::cpu::current()->id] = transport.get();
+	return make_uniq<duckdb_apache::thrift::protocol::TCompactProtocolT<ThriftFileTransport>>(transport); //std::move(transport));
 }
 
 static shared_ptr<ParquetFileMetadataCache>
@@ -711,6 +705,8 @@ ParquetReader::ParquetReader(ClientContext &context_p, string file_name_p, Parqu
 	u64 physgb = envOr("PHYSGB", 16ull);
 	ucache::createCache(physgb *1024*1024*1024, envOr("BATCH", 64));
 	vma = ucache::uCacheManager->getOrCreateVMA(file_name.c_str(), envOr("PAGESIZE", 4096));
+	vma->callback_implems.prefetch_pol = parquet_prefetch;
+	ucache::uCacheManager->prefetch_batch = envOr("PREFETCH_PER_CORE", 16ul);
 
 	// set pointer to factory method for AES state
 	auto &config = DBConfig::GetConfig(context_p);
@@ -1009,6 +1005,9 @@ void ParquetReader::InitializeScan(ClientContext &context, ParquetReaderScanStat
 
 		state.file_handle = fs.OpenFile(file_handle->path, flags);
 	}*/
+	Value disable_prefetch = false;
+	context.TryGetCurrentSetting("disable_parquet_prefetching", disable_prefetch);
+	state.prefetch_mode = !disable_prefetch.GetValue<bool>();
 	state.thrift_file_proto = CreateThriftFileProtocol(vma, state.prefetch_mode);
 	state.root_reader = CreateReader(context);
 	state.define_buf.resize(allocator, STANDARD_VECTOR_SIZE);

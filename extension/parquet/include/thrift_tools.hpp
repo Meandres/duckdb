@@ -111,9 +111,16 @@ struct ReadAheadBuffer {
 		}
 		return nullptr;
 	} 
+	void printHeads(){
+		for(int i=0; i<read_heads.size(); i++){
+			ReadHead &rh = read_heads[i];
+			printf("%u (%lu - %lu) / ", i, rh.location, rh.GetEnd());
+		}
+		printf("\n");
+	}
 };
 
-void parquet_prefetch(ucache::VMA* vma, void* addr, ucache::PrefetchList pl, void* obj);
+void parquet_prefetch(ucache::VMA* vma, void* addr, ucache::PrefetchList pl);
 
 class ThriftFileTransport : public duckdb_apache::thrift::transport::TVirtualTransport<ThriftFileTransport> {
 public:
@@ -121,8 +128,6 @@ public:
 	ThriftFileTransport(ucache::VMA* vma_p, bool prefetch_mode_p)
 	    : vma(vma_p), location(0), size(vma->file->size), prefetch_mode(prefetch_mode_p), ra_buffer(ReadAheadBuffer(vma_p))
 			{
-				vma->callback_implems.prefetch_pol = parquet_prefetch;
-				vma->prefetchObject = (void*)this;
 			}
 
 	uint32_t read(uint8_t *buf, uint32_t len) {
@@ -188,4 +193,5 @@ private:
 	bool prefetch_mode;
 };
 
+extern ThriftFileTransport* cores_transports[64];
 } // namespace duckdb
