@@ -53,11 +53,6 @@ void parquet_prefetch(ucache::VMA* vma, void* addr, ucache::PrefetchList pl){
 		ucache::assert_crash(tft != NULL);
 		idx_t pos = (uintptr_t)addr - (uintptr_t)vma->start;
 		uint64_t buf_id = pos/vma->pageSize;
-		if(ucache::uCacheManager->pageFaults.load() % 100000 == 0){
-				printf("Ratio prefetched / total: %.3f : %lu - %lu\n", ucache::uCacheManager->prefetchedSize/(ucache::uCacheManager->readSize+0.0), ucache::uCacheManager->prefetchedSize.load()/vma->pageSize, ucache::uCacheManager->readSize.load()/vma->pageSize);
-				printf("Mispredictions: %lu\n\n", ucache::uCacheManager->mispredictions.load());
-				printf("Depth: %.2f\n", ucache::uCacheManager->poll_depth.load()/(ucache::uCacheManager->poll_depth_count.load()+0.0));
-		}
 		ReadHead* rh = tft->ra_buffer.GetReadHead(pos);
 		if(rh == nullptr){ return; }
 		u64 remainingBuffers = (rh->GetEnd() - pos)/vma->pageSize;
@@ -702,11 +697,9 @@ ParquetReader::ParquetReader(ClientContext &context_p, string file_name_p, Parqu
 		    "Reading parquet files from a FIFO stream is not supported and cannot be efficiently supported since "
 		    "metadata is located at the end of the file. Write the stream to disk first and read from there instead.");
 	}*/
-	u64 physgb = envOr("PHYSGB", 16ull);
-	ucache::createCache(physgb *1024*1024*1024, envOr("BATCH", 64));
-	vma = ucache::uCacheManager->getOrCreateVMA(file_name.c_str(), envOr("PAGESIZE", 4096));
-	vma->callback_implems.prefetch_pol = parquet_prefetch;
-	ucache::uCacheManager->prefetch_batch = envOr("PREFETCH_PER_CORE", 16ul);
+	vma = ucache::uCacheManager->mmap(file_name.c_str(), 0, envOr("PAGESIZE", 4096));
+	//vma->callback_implems.prefetch_pol = parquet_prefetch;
+	//ucache::uCacheManager->prefetch_batch = envOr("PREFETCH_PER_CORE", 16ul);
 
 	// set pointer to factory method for AES state
 	auto &config = DBConfig::GetConfig(context_p);
@@ -751,6 +744,7 @@ ParquetReader::ParquetReader(ClientContext &context_p, ParquetOptions parquet_op
 }
 
 ParquetReader::~ParquetReader() {
+	close(vma->file->fd);
 }
 
 const FileMetaData *ParquetReader::GetFileMetadata() const {

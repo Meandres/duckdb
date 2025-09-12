@@ -6,6 +6,13 @@ if(NOT WIN32)
   include_directories(../../third_party/utf8proc/include)
   include_directories(linenoise/include)
 endif()
+include_directories(
+  ../../../../../include 
+  ../../../../.. 
+  ../../../../../arch/x64 
+  ../../../../../arch/common
+  ../../../../../build/release.x64/gen/include
+)
 set(SHELL_SOURCES ${SHELL_SOURCES} shell.cpp shell_renderer.cpp
                   shell_highlight.cpp)
 

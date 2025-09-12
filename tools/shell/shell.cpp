@@ -82,8 +82,9 @@
 #include "duckdb_shell_wrapper.h"
 #include "duckdb/common/box_renderer.hpp"
 #include "sqlite3.h"
+#include <osv/ucache.hh>
 typedef sqlite3_int64 i64;
-typedef sqlite3_uint64 u64;
+//typedef sqlite3_uint64 u64;
 typedef unsigned char u8;
 #include <ctype.h>
 
@@ -4386,12 +4387,28 @@ static bool _all_whitespace(const char *z) {
 #define sqlite3_complete(x) 1
 #endif
 
+uint64_t envOr(const char* env, u64 value) {
+   if (getenv(env))
+      return atof(getenv(env));
+   return value;
+}
 /*
 ** Run a single line of SQL.  Return the number of errors.
 */
 int ShellState::RunOneSqlLine(char *zSql) {
 	int rc;
 	char *zErrMsg = nullptr;
+
+	uint64_t physgb = envOr("PHYSGB", 16ull);
+	ucache::createCache(physgb *1024*1024*1024, envOr("BATCH", 512));
+	ucache::uCacheManager->mmap("/nvme/tpch/lineitem.parquet", 0, envOr("PAGESIZE", 4096));
+	ucache::uCacheManager->mmap("/nvme/tpch/part.parquet", 0, envOr("PAGESIZE", 4096));
+	ucache::uCacheManager->mmap("/nvme/tpch/supplier.parquet", 0, envOr("PAGESIZE", 4096));
+	ucache::uCacheManager->mmap("/nvme/tpch/partsupp.parquet", 0, envOr("PAGESIZE", 4096));
+	ucache::uCacheManager->mmap("/nvme/tpch/nation.parquet", 0, envOr("PAGESIZE", 4096));
+	ucache::uCacheManager->mmap("/nvme/tpch/region.parquet", 0, envOr("PAGESIZE", 4096));
+	ucache::uCacheManager->mmap("/nvme/tpch/customer.parquet", 0, envOr("PAGESIZE", 4096));
+	ucache::uCacheManager->mmap("/nvme/tpch/orders.parquet", 0, envOr("PAGESIZE", 4096));
 
 	OpenDB(0);
 	if (ShellHasFlag(SHFLG_Backslash)) {

@@ -94,7 +94,7 @@ struct ReadAheadBuffer {
 		}
 
 		if (read_head.GetEnd() > vma->file->size) {
-			throw std::runtime_error("Prefetch registered for bytes outside file: " + vma->file->name +
+			throw std::runtime_error("Prefetch registered for bytes outside file: " + std::string(vma->file->name) +
 			                         ", attempted range: [" + std::to_string(pos) + ", " +
 			                         std::to_string(read_head.GetEnd()) +
 			                         "), file size: " + std::to_string(vma->file->size));
