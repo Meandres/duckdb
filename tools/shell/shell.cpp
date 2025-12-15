@@ -4401,14 +4401,14 @@ int ShellState::RunOneSqlLine(char *zSql) {
 
 	uint64_t physgb = envOr("PHYSGB", 16ull);
 	ucache::createCache(physgb *1024*1024*1024, envOr("BATCH", 512));
-	ucache::uCacheManager->mmap("/nvme/tpch/lineitem.parquet", 0, envOr("PAGESIZE", 4096));
+	/*ucache::uCacheManager->mmap("/nvme/tpch/lineitem.parquet", 0, envOr("PAGESIZE", 4096));
 	ucache::uCacheManager->mmap("/nvme/tpch/part.parquet", 0, envOr("PAGESIZE", 4096));
 	ucache::uCacheManager->mmap("/nvme/tpch/supplier.parquet", 0, envOr("PAGESIZE", 4096));
 	ucache::uCacheManager->mmap("/nvme/tpch/partsupp.parquet", 0, envOr("PAGESIZE", 4096));
 	ucache::uCacheManager->mmap("/nvme/tpch/nation.parquet", 0, envOr("PAGESIZE", 4096));
 	ucache::uCacheManager->mmap("/nvme/tpch/region.parquet", 0, envOr("PAGESIZE", 4096));
 	ucache::uCacheManager->mmap("/nvme/tpch/customer.parquet", 0, envOr("PAGESIZE", 4096));
-	ucache::uCacheManager->mmap("/nvme/tpch/orders.parquet", 0, envOr("PAGESIZE", 4096));
+	ucache::uCacheManager->mmap("/nvme/tpch/orders.parquet", 0, envOr("PAGESIZE", 4096));*/
 
 	OpenDB(0);
 	if (ShellHasFlag(SHFLG_Backslash)) {

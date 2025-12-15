@@ -110,7 +110,7 @@ struct ReadAheadBuffer {
 			}
 		}
 		return nullptr;
-	} 
+	}
 	void printHeads(){
 		for(int i=0; i<read_heads.size(); i++){
 			ReadHead &rh = read_heads[i];
@@ -131,6 +131,7 @@ public:
 			}
 
 	uint32_t read(uint8_t *buf, uint32_t len) {
+		//printf("reading @%lu (%u bytes)\n", location, len);
 		memcpy(buf, reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(vma->start)+location), len);
 		location += len;
 		return len;

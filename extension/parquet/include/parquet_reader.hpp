@@ -203,4 +203,18 @@ private:
 	unique_ptr<FileHandle> file_handle;
 };
 
+class remote_ufile: public virtual ucache::ufile {
+	public:
+		ParquetReader* reader;
+		std::vector<void*> tmp_bufs;
+		std::vector<std::atomic<u64>*> pteRefs;
+
+ 		remote_ufile(const char* n, u64 req_size, ucache::ufs* fs);
+		void read(void* buf, u64 offset, u64 size);
+		void write(void* buf, u64 offset, u64 size);
+		ucache::aio_req_t* awrite(void* buf, u64 offset, u64 size, bool ring);
+		ucache::aio_req_t* aread(void* buf, u64 offset, u64 size, bool ring);
+		void poll(ucache::aio_req_t* reqs);
+		void close();
+};
 } // namespace duckdb
