@@ -744,7 +744,7 @@ ParquetReader::ParquetReader(ClientContext &context_p, ParquetOptions parquet_op
 }
 
 ParquetReader::~ParquetReader() {
-	close(vma->file->fd);
+	vma->file->close();
 }
 
 const FileMetaData *ParquetReader::GetFileMetadata() const {
