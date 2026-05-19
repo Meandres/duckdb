@@ -80,7 +80,7 @@ void StructColumnReader::Skip(idx_t num_values) {
 	}
 }
 
-void StructColumnReader::RegisterPrefetch(ThriftFileTransport &transport, bool allow_merge) {
+void StructColumnReader::RegisterPrefetch(ParquetTransportBase &transport, bool allow_merge) {
 	for (auto &child : child_readers) {
 		if (!child) {
 			continue;

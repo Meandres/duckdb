@@ -3,6 +3,9 @@
 #include "duckdb/storage/external_file_cache.hpp"
 #include "duckdb/storage/external_file_cache_util.hpp"
 #include "duckdb/storage/caching_file_system.hpp"
+#ifdef __OSV__
+#include "osv_parquet_file_handle.hpp"
+#endif
 
 namespace duckdb {
 
@@ -52,6 +55,22 @@ bool ParquetFileMetadataCache::IsValid(CachingFileHandle &new_handle) const {
 	return ExternalFileCache::IsValid(validate, version_tag, last_modified, new_handle.GetVersionTag(),
 	                                  new_handle.GetLastModifiedTime());
 }
+
+#ifdef __OSV__
+ParquetFileMetadataCache::ParquetFileMetadataCache(unique_ptr<duckdb_parquet::FileMetaData> file_metadata,
+                                                   ::osv_duckdb::OsvCachingFileHandle &handle,
+                                                   unique_ptr<GeoParquetFileMetadata> geo_metadata,
+                                                   unique_ptr<FileCryptoMetaData> crypto_metadata, idx_t footer_size)
+    : metadata(std::move(file_metadata)), geo_metadata(std::move(geo_metadata)),
+      crypto_metadata(std::move(crypto_metadata)), footer_size(footer_size), validate(handle.Validate()),
+      last_modified(handle.GetLastModifiedTime()), version_tag(handle.GetVersionTag()) {
+}
+
+bool ParquetFileMetadataCache::IsValid(::osv_duckdb::OsvCachingFileHandle &new_handle) const {
+	return ExternalFileCache::IsValid(validate, version_tag, last_modified, new_handle.GetVersionTag(),
+	                                  new_handle.GetLastModifiedTime());
+}
+#endif
 
 ParquetCacheValidity ParquetFileMetadataCache::IsValid(const OpenFileInfo &info, ClientContext &context) const {
 	CacheValidationMode validation_mode = ExternalFileCacheUtil::GetCacheValidationMode(info, &context, *context.db);

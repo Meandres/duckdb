@@ -16,6 +16,9 @@ ExternalFileCache::CachedFileRange::CachedFileRange(shared_ptr<BlockHandle> bloc
 
 ExternalFileCache::CachedFileRange::~CachedFileRange() {
 	VerifyCheckSum();
+	if (cached_bytes_ref) {
+		cached_bytes_ref->fetch_sub(nr_bytes, std::memory_order_relaxed);
+	}
 }
 
 ExternalFileCache::CachedFileRangeOverlap
@@ -179,6 +182,32 @@ ExternalFileCache::CachedFile &ExternalFileCache::GetOrCreateCachedFile(const st
 		entry = make_uniq<CachedFile>(path);
 	}
 	return *entry;
+}
+
+void ExternalFileCache::SetMaxBytes(uint64_t n) {
+	lock_guard<mutex> guard(lock);
+	max_bytes_ = n;
+	if (cached_bytes_ > 0) {
+		// Clear existing entries; their destructors decrement cached_bytes_.
+		cached_files.clear();
+	}
+}
+
+bool ExternalFileCache::TryAddBytes(idx_t n) {
+	if (max_bytes_ == uint64_t(-1)) {
+		return true;
+	}
+	// Optimistically increment; undo if the limit is exceeded.
+	auto prev = cached_bytes_.fetch_add(n, std::memory_order_relaxed);
+	if (prev + n > max_bytes_) {
+		cached_bytes_.fetch_sub(n, std::memory_order_relaxed);
+		return false;
+	}
+	return true;
+}
+
+atomic<uint64_t> *ExternalFileCache::GetCachedBytesCounter() {
+	return &cached_bytes_;
 }
 
 } // namespace duckdb

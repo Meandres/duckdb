@@ -33,7 +33,7 @@ public:
 	void Skip(idx_t num_values) override;
 	idx_t GroupRowsAvailable() override;
 	uint64_t TotalCompressedSize() override;
-	void RegisterPrefetch(ThriftFileTransport &transport, bool allow_merge) override;
+	void RegisterPrefetch(ParquetTransportBase &transport, bool allow_merge) override;
 };
 
 } // namespace duckdb

@@ -11,6 +11,9 @@
 #include "duckdb.hpp"
 #include "duckdb/common/helper.hpp"
 #include "duckdb/storage/caching_file_system.hpp"
+#ifdef __OSV__
+#include "osv_parquet_file_handle.hpp"
+#endif
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/encryption_functions.hpp"
 #include "duckdb/common/encryption_state.hpp"
@@ -62,7 +65,11 @@ struct ParquetReaderScanState {
 	int64_t current_group;
 	idx_t offset_in_group;
 	idx_t group_offset;
+#ifdef __OSV__
+	unique_ptr<::osv_duckdb::OsvCachingFileHandle> file_handle;
+#else
 	unique_ptr<CachingFileHandle> file_handle;
+#endif
 	unique_ptr<ColumnReader> root_reader;
 	duckdb_base_std::unique_ptr<duckdb_apache::thrift::protocol::TProtocol> thrift_file_proto;
 
@@ -197,9 +204,11 @@ public:
 
 	unique_ptr<BaseStatistics> ReadStatistics(const string &name);
 
-	CachingFileHandle &GetHandle() {
-		return *file_handle;
-	}
+#ifdef __OSV__
+	::osv_duckdb::OsvCachingFileHandle &GetHandle() { return *file_handle; }
+#else
+	CachingFileHandle &GetHandle() { return *file_handle; }
+#endif
 
 	static unique_ptr<BaseStatistics> ReadStatistics(ClientContext &context, ParquetOptions parquet_options,
 	                                                 shared_ptr<ParquetFileMetadataCache> metadata, const string &name);
@@ -248,7 +257,11 @@ private:
 	                                                    uint16_t column_ordinal, uint16_t page_ordinal) const;
 
 private:
+#ifdef __OSV__
+	unique_ptr<::osv_duckdb::OsvCachingFileHandle> file_handle;
+#else
 	unique_ptr<CachingFileHandle> file_handle;
+#endif
 };
 
 } // namespace duckdb

@@ -105,7 +105,7 @@ void VariantColumnReader::Skip(idx_t num_values) {
 	}
 }
 
-void VariantColumnReader::RegisterPrefetch(ThriftFileTransport &transport, bool allow_merge) {
+void VariantColumnReader::RegisterPrefetch(ParquetTransportBase &transport, bool allow_merge) {
 	for (auto &child : child_readers) {
 		if (!child) {
 			continue;

@@ -115,7 +115,7 @@ public:
 	virtual idx_t GroupRowsAvailable();
 
 	// register the range this reader will touch for prefetching
-	virtual void RegisterPrefetch(ThriftFileTransport &transport, bool allow_merge);
+	virtual void RegisterPrefetch(ParquetTransportBase &transport, bool allow_merge);
 
 	unique_ptr<BaseStatistics> Stats(idx_t row_group_idx_p, const vector<ColumnChunk> &columns);
 

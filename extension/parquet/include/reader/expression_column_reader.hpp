@@ -48,7 +48,7 @@ public:
 		return child_reader->FileOffset();
 	}
 
-	void RegisterPrefetch(ThriftFileTransport &transport, bool allow_merge) override {
+	void RegisterPrefetch(ParquetTransportBase &transport, bool allow_merge) override {
 		child_reader->RegisterPrefetch(transport, allow_merge);
 	}
 };

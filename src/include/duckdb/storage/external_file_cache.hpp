@@ -48,6 +48,8 @@ public:
 		const idx_t nr_bytes;
 		const idx_t location;
 		const string version_tag;
+		//! Back-pointer to the owning cache's byte counter; non-null only when inserted into the cache.
+		atomic<uint64_t> *cached_bytes_ref = nullptr;
 #ifdef DEBUG
 		hash_t checksum = 0;
 #endif
@@ -102,6 +104,14 @@ public:
 	//! Gets the cached file, or creates it if is not yet present
 	CachedFile &GetOrCreateCachedFile(const string &path);
 
+	//! Set an upper bound on admitted cache bytes. Clears existing entries if any are present.
+	void SetMaxBytes(uint64_t n);
+	//! Try to admit n bytes into the cache. Returns false (without modifying the counter) if
+	//! the limit would be exceeded. On success the counter is incremented by n.
+	bool TryAddBytes(idx_t n);
+	//! Returns a pointer to the shared byte counter for use by CachedFileRange destructors.
+	atomic<uint64_t> *GetCachedBytesCounter();
+
 	DUCKDB_API static bool IsValid(bool validate, const string &cached_version_tag, timestamp_t cached_last_modified,
 	                               const string &current_version_tag, timestamp_t current_last_modified);
 
@@ -110,6 +120,10 @@ private:
 	BufferManager &buffer_manager;
 	//! Whether or not file caching is enabled
 	atomic<bool> enable;
+	//! Total bytes admitted into the cache (decremented when CachedFileRange is destroyed).
+	atomic<uint64_t> cached_bytes_ {0};
+	//! Upper bound on admitted bytes; uint64_t(-1) means unlimited.
+	uint64_t max_bytes_ {uint64_t(-1)};
 	//! Mapping from file path to cached file with cached ranges
 	unordered_map<string, unique_ptr<CachedFile>> cached_files;
 	//! Lock for accessing the cached files

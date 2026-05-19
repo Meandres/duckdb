@@ -1,5 +1,10 @@
 #include "parquet_reader.hpp"
 
+#ifdef __OSV__
+// No kernel headers needed here — only the thin forward-declaration header.
+#include "osv_parquet_file_handle.hpp"
+#endif
+
 #include "duckdb/common/optional_ptr.hpp"
 #include "duckdb/function/partition_stats.hpp"
 #include "parquet_types.h"
@@ -45,6 +50,15 @@ CreateThriftFileProtocol(QueryContext context, CachingFileHandle &file_handle, b
 	return make_uniq<duckdb_apache::thrift::protocol::TCompactProtocolT<ThriftFileTransport>>(std::move(transport));
 }
 
+#ifdef __OSV__
+static unique_ptr<duckdb_apache::thrift::protocol::TProtocol>
+CreateThriftFileProtocol(QueryContext /*context*/, ::osv_duckdb::OsvCachingFileHandle &file_handle, bool prefetch_mode) {
+	auto transport = duckdb_base_std::make_shared<::osv_duckdb::OsvThriftFileTransport>(file_handle, prefetch_mode);
+	return make_uniq<duckdb_apache::thrift::protocol::TCompactProtocolT<::osv_duckdb::OsvThriftFileTransport>>(
+	    std::move(transport));
+}
+#endif
+
 static bool ShouldAndCanPrefetch(ClientContext &context, CachingFileHandle &file_handle) {
 	Value disable_prefetch = false;
 	Value prefetch_all_files = false;
@@ -54,6 +68,15 @@ static bool ShouldAndCanPrefetch(ClientContext &context, CachingFileHandle &file
 	bool can_prefetch = file_handle.CanSeek() && !disable_prefetch.GetValue<bool>();
 	return should_prefetch && can_prefetch;
 }
+
+#ifdef __OSV__
+static bool ShouldAndCanPrefetch(ClientContext &context, ::osv_duckdb::OsvCachingFileHandle &) {
+	Value disable_prefetch = false;
+	context.TryGetCurrentSetting("disable_parquet_prefetching", disable_prefetch);
+	// OsvCachingFileHandle::OnDiskFile() == false → always prefetch unless disabled.
+	return !disable_prefetch.GetValue<bool>();
+}
+#endif
 
 static void ParseParquetFooter(data_ptr_t buffer, const string &file_path, idx_t file_size,
                                const shared_ptr<const ParquetEncryptionConfig> &encryption_config, uint32_t &footer_len,
@@ -79,12 +102,13 @@ static void ParseParquetFooter(data_ptr_t buffer, const string &file_path, idx_t
 	}
 }
 
+template <typename FileHandleT>
 static shared_ptr<ParquetFileMetadataCache>
-LoadMetadata(ClientContext &context, Allocator &allocator, CachingFileHandle &file_handle,
+LoadMetadata(ClientContext &context, Allocator &allocator, FileHandleT &file_handle,
              const shared_ptr<const ParquetEncryptionConfig> &encryption_config,
              shared_ptr<EncryptionUtil> &encryption_util, optional_idx footer_size) {
 	auto file_proto = CreateThriftFileProtocol(context, file_handle, false);
-	auto &transport = reinterpret_cast<ThriftFileTransport &>(*file_proto->getTransport());
+	auto &transport = GetParquetTransport(*file_proto);
 	auto file_size = transport.GetSize();
 	if (file_size < 12) {
 		throw InvalidInputException("File '%s' too small to be a Parquet file", file_handle.GetPath());
@@ -861,7 +885,21 @@ ParquetReader::ParquetReader(ClientContext &context_p, OpenFileInfo file_p, Parq
                              shared_ptr<ParquetFileMetadataCache> metadata_p)
     : BaseFileReader(std::move(file_p)), fs(CachingFileSystem::Get(context_p)),
       allocator(BufferAllocator::Get(context_p)), parquet_options(std::move(parquet_options_p)) {
+#ifdef __OSV__
+	{
+		// On OSv, open a VMA-backed handle that reads directly from uCache memory.
+		// config.file_system is the actual registered OsvUCacheFileSystem; the
+		// client_file_system wrapper doesn't expose the derived type.
+		auto *osv_fs = dynamic_cast<::osv_duckdb::OsvParquetFileSystemBase *>(
+		    DBConfig::GetConfig(context_p).file_system.get());
+		if (!osv_fs) {
+			throw IOException("OSv Parquet reader requires OsvParquetFileSystemBase to be registered");
+		}
+		file_handle = osv_fs->OpenParquetHandle(file.path, FileFlags::FILE_FLAGS_READ);
+	}
+#else
 	file_handle = fs.OpenFile(context_p, file, FileFlags::FILE_FLAGS_READ);
+#endif
 	if (!file_handle->CanSeek()) {
 		throw NotImplementedException(
 		    "Reading parquet files from a FIFO stream is not supported and cannot be efficiently supported since "
@@ -1296,7 +1334,18 @@ void ParquetReader::InitializeScan(ClientContext &context, ParquetReaderScanStat
 			state.prefetch_mode = false;
 		}
 
+#ifdef __OSV__
+		{
+			auto *osv_fs = dynamic_cast<::osv_duckdb::OsvParquetFileSystemBase *>(
+			    DBConfig::GetConfig(context).file_system.get());
+			if (!osv_fs) {
+				throw IOException("OSv Parquet scan requires OsvParquetFileSystemBase to be registered");
+			}
+			state.file_handle = osv_fs->OpenParquetHandle(file.path, flags);
+		}
+#else
 		state.file_handle = fs.OpenFile(context, file, flags);
+#endif
 	}
 	state.adaptive_filter.reset();
 	state.scan_filters.clear();
@@ -1388,7 +1437,7 @@ AsyncResult ParquetReader::Scan(ClientContext &context, ParquetReaderScanState &
 		state.current_group++;
 		state.offset_in_group = 0;
 
-		auto &trans = reinterpret_cast<ThriftFileTransport &>(*state.thrift_file_proto->getTransport());
+		auto &trans = GetParquetTransport(*state.thrift_file_proto);
 		trans.ClearPrefetch();
 		state.current_group_prefetched = false;
 

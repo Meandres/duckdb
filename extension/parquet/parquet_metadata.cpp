@@ -1,6 +1,9 @@
 #include "parquet_metadata.hpp"
 
 #include "parquet_statistics.hpp"
+#ifdef __OSV__
+#include "osv_parquet_file_handle.hpp"
+#endif
 
 #include <sstream>
 
@@ -777,7 +780,7 @@ private:
 	Value probe_constant;
 	optional_idx probe_column_idx;
 
-	unique_ptr<duckdb_apache::thrift::protocol::TCompactProtocolT<ThriftFileTransport>> protocol;
+	unique_ptr<duckdb_apache::thrift::protocol::TProtocol> protocol;
 	optional_ptr<Allocator> allocator;
 	unique_ptr<ConstantFilter> filter;
 };
@@ -813,8 +816,14 @@ void ParquetBloomProbeProcessor::InitializeInternal(ClientContext &context, Parq
 		throw InvalidInputException("Column %s not found in %s", probe_column_name, reader.file.path);
 	}
 
+#ifdef __OSV__
+	auto transport = duckdb_base_std::make_shared<::osv_duckdb::OsvThriftFileTransport>(reader.GetHandle(), false);
+	protocol = make_uniq<duckdb_apache::thrift::protocol::TCompactProtocolT<::osv_duckdb::OsvThriftFileTransport>>(
+	    std::move(transport));
+#else
 	auto transport = duckdb_base_std::make_shared<ThriftFileTransport>(reader.GetHandle(), false);
 	protocol = make_uniq<duckdb_apache::thrift::protocol::TCompactProtocolT<ThriftFileTransport>>(std::move(transport));
+#endif
 	allocator = &BufferAllocator::Get(context);
 	filter = make_uniq<ConstantFilter>(
 	    ExpressionType::COMPARE_EQUAL,

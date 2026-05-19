@@ -123,7 +123,48 @@ struct ReadAheadBuffer {
 	}
 };
 
-class ThriftFileTransport : public duckdb_apache::thrift::transport::TVirtualTransport<ThriftFileTransport> {
+// ─────────────────────────────────────────────────────────────────────────────
+// ParquetTransportBase
+//
+// Virtual interface implemented by both ThriftFileTransport (standard path)
+// and OsvThriftFileTransport (OSv uCache VMA path).  All code that previously
+// reinterpret_cast<ThriftFileTransport &> now uses dynamic_cast to this base
+// so it works with either transport implementation.
+// ─────────────────────────────────────────────────────────────────────────────
+class ParquetTransportBase {
+public:
+	virtual ~ParquetTransportBase() = default;
+
+	virtual uint32_t read(uint8_t *buf, uint32_t len) = 0;
+
+	virtual void SetLocation(idx_t location) = 0;
+	virtual idx_t GetLocation() const = 0;
+	virtual idx_t GetSize() const = 0;
+	virtual void Skip(idx_t skip_count) = 0;
+
+	// Returns the ReadHead covering pos, or nullptr if none / not applicable.
+	virtual optional_ptr<ReadHead> GetReadHead(idx_t pos) = 0;
+	virtual bool HasPrefetch() const = 0;
+
+	virtual void RegisterPrefetch(idx_t pos, uint64_t len, bool can_merge = true) = 0;
+	virtual void FinalizeRegistration() = 0;
+	virtual void PrefetchRegistered() = 0;
+	virtual void ClearPrefetch() = 0;
+	virtual void Prefetch(idx_t pos, uint64_t len) = 0;
+};
+
+// Helper: retrieve the ParquetTransportBase from a Thrift protocol object.
+// Both ThriftFileTransport and OsvThriftFileTransport inherit ParquetTransportBase.
+inline ParquetTransportBase &GetParquetTransport(
+    duckdb_apache::thrift::protocol::TProtocol &proto) {
+	auto *base = dynamic_cast<ParquetTransportBase *>(proto.getTransport().get());
+	D_ASSERT(base != nullptr);
+	return *base;
+}
+
+class ThriftFileTransport
+    : public duckdb_apache::thrift::transport::TVirtualTransport<ThriftFileTransport>,
+      public ParquetTransportBase {
 public:
 	static constexpr uint64_t PREFETCH_FALLBACK_BUFFERSIZE = 1000000;
 
@@ -132,7 +173,7 @@ public:
 	      ra_buffer(ReadAheadBuffer(file_handle)), prefetch_mode(prefetch_mode_p) {
 	}
 
-	uint32_t read(uint8_t *buf, uint32_t len) {
+	uint32_t read(uint8_t *buf, uint32_t len) override {
 		auto prefetch_buffer = ra_buffer.GetReadHead(location);
 		if (prefetch_buffer != nullptr && location - prefetch_buffer->location + len <= prefetch_buffer->size) {
 			D_ASSERT(location - prefetch_buffer->location + len <= prefetch_buffer->size);
@@ -160,53 +201,53 @@ public:
 	}
 
 	// Prefetch a single buffer
-	void Prefetch(idx_t pos, uint64_t len) {
+	void Prefetch(idx_t pos, uint64_t len) override {
 		RegisterPrefetch(pos, len, false);
 		FinalizeRegistration();
 		PrefetchRegistered();
 	}
 
 	// Register a buffer for prefixing
-	void RegisterPrefetch(idx_t pos, uint64_t len, bool can_merge = true) {
+	void RegisterPrefetch(idx_t pos, uint64_t len, bool can_merge = true) override {
 		ra_buffer.AddReadHead(pos, len, can_merge);
 	}
 
 	// Prevents any further merges, should be called before PrefetchRegistered
-	void FinalizeRegistration() {
+	void FinalizeRegistration() override {
 		ra_buffer.merge_set.clear();
 	}
 
 	// Prefetch all previously registered ranges
-	void PrefetchRegistered() {
+	void PrefetchRegistered() override {
 		ra_buffer.Prefetch();
 	}
 
-	void ClearPrefetch() {
+	void ClearPrefetch() override {
 		ra_buffer.read_heads.clear();
 		ra_buffer.merge_set.clear();
 	}
 
-	void Skip(idx_t skip_count) {
+	void Skip(idx_t skip_count) override {
 		location += skip_count;
 	}
 
-	bool HasPrefetch() const {
+	bool HasPrefetch() const override {
 		return !ra_buffer.read_heads.empty() || !ra_buffer.merge_set.empty();
 	}
 
-	void SetLocation(idx_t location_p) {
+	void SetLocation(idx_t location_p) override {
 		location = location_p;
 	}
 
-	idx_t GetLocation() const {
+	idx_t GetLocation() const override {
 		return location;
 	}
 
-	optional_ptr<ReadHead> GetReadHead(idx_t pos) {
+	optional_ptr<ReadHead> GetReadHead(idx_t pos) override {
 		return ra_buffer.GetReadHead(pos);
 	}
 
-	idx_t GetSize() const {
+	idx_t GetSize() const override {
 		return size;
 	}
 

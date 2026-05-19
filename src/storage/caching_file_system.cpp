@@ -396,6 +396,12 @@ BufferHandle CachingFileHandle::TryInsertFileRange(BufferHandle &pin, data_ptr_t
 	}
 	D_ASSERT(pin.IsValid());
 
+	// Respect the per-cache size limit; skip insert if admitting nr_bytes would exceed it.
+	if (!external_file_cache.TryAddBytes(nr_bytes)) {
+		return std::move(pin);
+	}
+	new_file_range->cached_bytes_ref = external_file_cache.GetCachedBytesCounter();
+
 	// Finally, insert newly created buffer into the map
 	new_file_range->AddCheckSum();
 	ranges[location] = std::move(new_file_range);

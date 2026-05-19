@@ -724,7 +724,7 @@ bool ParquetStatisticsUtils::BloomFilterExcludes(const TableFilter &duckdb_filte
 	}
 	// TODO check length against file length!
 
-	auto &transport = reinterpret_cast<ThriftFileTransport &>(*file_proto.getTransport());
+	auto &transport = GetParquetTransport(file_proto);
 	transport.SetLocation(column_meta_data.bloom_filter_offset);
 	if (column_meta_data.__isset.bloom_filter_length && column_meta_data.bloom_filter_length > 0) {
 		transport.Prefetch(column_meta_data.bloom_filter_offset, column_meta_data.bloom_filter_length);

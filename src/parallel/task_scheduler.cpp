@@ -505,7 +505,7 @@ void TaskScheduler::RelaunchThreads() {
 
 #ifndef DUCKDB_NO_THREADS
 static void SetThreadAffinity(thread &thread, const int &cpu_id) {
-#if defined(__GLIBC__)
+#if defined(__GLIBC__) || defined(__OSV__)
 	cpu_set_t cpuset;
 	CPU_ZERO(&cpuset);
 	CPU_SET(cpu_id, &cpuset);

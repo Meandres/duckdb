@@ -42,7 +42,7 @@ public:
 	idx_t FileOffset() const override {
 		return 0;
 	}
-	void RegisterPrefetch(ThriftFileTransport &transport, bool allow_merge) override {
+	void RegisterPrefetch(ParquetTransportBase &transport, bool allow_merge) override {
 	}
 
 private:

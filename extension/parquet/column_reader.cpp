@@ -126,7 +126,7 @@ const ParquetReader &ColumnReader::Reader() {
 	return reader;
 }
 
-void ColumnReader::RegisterPrefetch(ThriftFileTransport &transport, bool allow_merge) {
+void ColumnReader::RegisterPrefetch(ParquetTransportBase &transport, bool allow_merge) {
 	if (chunk) {
 		uint64_t size = chunk->meta_data.total_compressed_size;
 		transport.RegisterPrefetch(FileOffset(), size, allow_merge);
@@ -226,7 +226,7 @@ bool ColumnReader::PageIsFilteredOut(PageHeader &page_hdr) {
 	}
 	// the page has been filtered out!
 	// skip forward
-	auto &trans = reinterpret_cast<ThriftFileTransport &>(*protocol->getTransport());
+	auto &trans = GetParquetTransport(*protocol);
 	trans.Skip(page_hdr.compressed_page_size);
 
 	page_rows_available = is_v1 ? v1_header.num_values : v2_header.num_values;
@@ -271,7 +271,7 @@ void ColumnReader::PrepareRead(optional_ptr<const TableFilter> filter, optional_
 	page_is_filtered_out = false;
 	block.reset();
 	PageHeader page_hdr;
-	auto &trans = reinterpret_cast<ThriftFileTransport &>(*protocol->getTransport());
+	auto &trans = GetParquetTransport(*protocol);
 
 	if (trans.HasPrefetch()) {
 		// Already has some data prefetched, let's not mess with it
@@ -561,7 +561,7 @@ void ColumnReader::PrepareDataPage(PageHeader &page_hdr) {
 
 void ColumnReader::BeginRead(data_ptr_t define_out, data_ptr_t repeat_out) {
 	// we need to reset the location because multiple column readers share the same protocol
-	auto &trans = reinterpret_cast<ThriftFileTransport &>(*protocol->getTransport());
+	auto &trans = GetParquetTransport(*protocol);
 	trans.SetLocation(chunk_read_offset);
 
 	// Perform any skips that were not applied yet.
@@ -654,7 +654,7 @@ void ColumnReader::ReadData(idx_t read_now, data_ptr_t define_out, data_ptr_t re
 }
 
 void ColumnReader::FinishRead(idx_t read_count) {
-	auto &trans = reinterpret_cast<ThriftFileTransport &>(*protocol->getTransport());
+	auto &trans = GetParquetTransport(*protocol);
 	chunk_read_offset = trans.GetLocation();
 
 	group_rows_available -= read_count;

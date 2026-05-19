@@ -12,6 +12,10 @@
 #include "parquet_geometry.hpp"
 #include "parquet_types.h"
 
+#ifdef __OSV__
+namespace osv_duckdb { struct OsvCachingFileHandle; }
+#endif
+
 namespace duckdb {
 struct CachingFileHandle;
 using duckdb_parquet::FileCryptoMetaData;
@@ -23,6 +27,12 @@ public:
 	ParquetFileMetadataCache(unique_ptr<duckdb_parquet::FileMetaData> file_metadata, CachingFileHandle &handle,
 	                         unique_ptr<GeoParquetFileMetadata> geo_metadata,
 	                         unique_ptr<FileCryptoMetaData> crypto_metadata, idx_t footer_size);
+#ifdef __OSV__
+	ParquetFileMetadataCache(unique_ptr<duckdb_parquet::FileMetaData> file_metadata,
+	                         ::osv_duckdb::OsvCachingFileHandle &handle,
+	                         unique_ptr<GeoParquetFileMetadata> geo_metadata,
+	                         unique_ptr<FileCryptoMetaData> crypto_metadata, idx_t footer_size);
+#endif
 	~ParquetFileMetadataCache() override = default;
 
 	//! Parquet file metadata
@@ -43,6 +53,9 @@ public:
 	optional_idx GetEstimatedCacheMemory() const override;
 
 	bool IsValid(CachingFileHandle &new_handle) const;
+#ifdef __OSV__
+	bool IsValid(::osv_duckdb::OsvCachingFileHandle &new_handle) const;
+#endif
 	//! Return if a cache entry is valid.
 	ParquetCacheValidity IsValid(const OpenFileInfo &info, ClientContext &context) const;
 
