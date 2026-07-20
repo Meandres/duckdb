@@ -24,6 +24,7 @@
             ccache
             clang-tools
             git
+            ninja
           ];
         };
       });
